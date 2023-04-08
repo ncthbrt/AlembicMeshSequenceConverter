@@ -7,7 +7,7 @@
 #include <Alembic/AbcCoreOgawa/All.h>
 #include <Alembic/AbcGeom/All.h>
 #include <Alembic/AbcMaterial/All.h>
-#include <Alembic/AbcCollection/All.h>
+#include <Alembic/AbcCollection/All.h>	
 
 #include "StopMotionTool.h"
 #include <cxxopts.hpp>
@@ -34,7 +34,7 @@ int main(int argc, char* argv[])
 
 	auto arguments = options.parse(argc, argv);
 	if (arguments.count("help")) {
-		std::cout << options.help() << std::endl;
+		cout << options.help() << std::endl;
 		exit(0);
 	}
 	
@@ -94,7 +94,6 @@ int main(int argc, char* argv[])
 
 	filesystem::path in_path(in_file_path_str);
 	auto filename_without_extension = in_path.filename().replace_extension().replace_extension();
-	cout << filename_without_extension << endl;
 	auto parent_directory_path = in_path.parent_path();
 	auto parent_directory_path_string = parent_directory_path.string();
 
