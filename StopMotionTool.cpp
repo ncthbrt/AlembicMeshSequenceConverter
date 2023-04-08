@@ -16,7 +16,7 @@
 #include <json/json.h>
 #include "tiny_obj_loader.h"
 #include <filesystem>
-
+#include "External/xatlas/xatlas.h"
 using namespace std;
 using namespace Alembic::AbcGeom;
 
@@ -27,7 +27,6 @@ int main(int argc, char* argv[])
 	options.add_options()
 		("f,file", "The objseq manifest file", cxxopts::value<string>())
 		("o,outfile", "The path to the alembic file", cxxopts::value<string>())
-
 		("h,help", "Print usage");
 
 	options.parse_positional({ "file", "outfile" });
@@ -38,6 +37,8 @@ int main(int argc, char* argv[])
 		exit(0);
 	}
 	
+	auto should_auto_unwrap = true;// arguments.count("uv") > 0;
+
 	if (arguments.count("f") == 0 || arguments.count("o") == 0)
 	{
 		cout << options.help() << endl;
@@ -127,7 +128,7 @@ int main(int argc, char* argv[])
 		// on the schema
 		mesh.setUVSourceName("uv0");
 		
-		for (auto j = 0; j<keyframes_json.size(); ++j) {
+		for (auto j = 0; j < keyframes_json.size(); ++j) {
 			auto frame_json = keyframes_json[j];
 			auto frame_number = frame_json.get("frame", 0).asInt();
 			auto frame_materials_json = frame_json["materials"];
@@ -150,57 +151,99 @@ int main(int argc, char* argv[])
 				exit(EXIT_FAILURE);
 			}
 
-			// TODO: Define per vertex normals
-		
-			
 			if (inshapes.size() > 1) {
 				cerr << "Expected only one mesh per obj file" << endl;
 				exit(EXIT_FAILURE);
 			}
 
+			auto atlas = xatlas::Create();
 			auto inmesh = inshapes[0].mesh;
 
-
-
-			V2f* uvs = new V2f[inmesh.indices.size()];
+			N3f* innormals = new N3f[inmesh.indices.size()];
 			for (auto k = 0; k < inmesh.indices.size(); ++k) {
 				auto indices = inmesh.indices[k];
-				uvs[k] = V2f(inattrib.texcoords[indices.texcoord_index * 2], inattrib.texcoords[indices.texcoord_index * 2 + 1]);
+				innormals[k] = N3f(inattrib.normals[indices.normal_index * 3], inattrib.normals[indices.normal_index * 3 + 1], inattrib.normals[indices.normal_index * 3 + 2]);
+			}
+
+			uint32_t* inface_indices = new uint32_t[inmesh.indices.size()];
+			for (auto k = 0; k < inmesh.indices.size(); ++k) {
+				auto indices = inmesh.indices[k];
+				inface_indices[k] = indices.vertex_index;
+			}
+
+			uint32_t* inmaterial_ids = new uint32_t[inmesh.material_ids.size()];
+			for (auto k = 0; k < inmesh.material_ids.size(); ++k) {
+				auto material_id = inmesh.material_ids[k];
+				inmaterial_ids[k] = (uint32_t)material_id;
+			}
+			// Unwrap mesh automatically
+			xatlas::MeshDecl decl;
+			xatlas::MeshDecl meshDecl;
+			meshDecl.vertexCount = (uint32_t)inattrib.vertices.size() / 3;
+			meshDecl.vertexPositionData = inattrib.vertices.data();
+			meshDecl.vertexPositionStride = sizeof(float) * 3;
+			meshDecl.vertexNormalData = innormals;
+			meshDecl.vertexNormalStride = sizeof(float) * 3;
+
+			meshDecl.indexCount = (uint32_t)inmesh.indices.size();
+			meshDecl.indexData = inface_indices;
+			meshDecl.indexFormat = xatlas::IndexFormat::UInt32;
+			meshDecl.faceMaterialData = inmaterial_ids;
+
+			xatlas::AddMeshError::Enum error = xatlas::AddMesh(atlas, meshDecl, (uint32_t)1);
+			if (error != xatlas::AddMeshError::Success) {
+				xatlas::Destroy(atlas);
+				cerr << "Error adding mesh: " << endl << xatlas::StringForEnum(error) << endl;
+				exit(EXIT_FAILURE);
+			}
+			xatlas::AddMesh(atlas, decl);
+			xatlas::Generate(atlas);
+
+			auto atlas_mesh = atlas->meshes[0];
+
+
+			V2f* outuvs = new V2f[atlas_mesh.vertexCount];
+			for (auto k = 0; k < atlas_mesh.vertexCount; ++k) {
+				auto vertex = atlas_mesh.vertexArray[k];
+				auto u = vertex.uv[0] / (float)atlas->width;
+				auto v = vertex.uv[1] / (float)atlas->height;
+				auto vertex_index = vertex.xref;
+				outuvs[k] = V2f(u, v);
 			}
 
 			Alembic::AbcGeom::OV2fGeomParam::Sample uvsamp(
-				Alembic::Abc::V2fArraySample((const Alembic::Abc::V2f*)uvs, inmesh.indices.size()),
-				kFacevaryingScope
+				Alembic::Abc::V2fArraySample((const Alembic::Abc::V2f*)outuvs, atlas_mesh.vertexCount),
+				kVaryingScope
 			);
-
-			N3f* normals = new N3f[inmesh.indices.size()];
+		
+			N3f* outnormals = new N3f[inmesh.indices.size()];
 			for (auto k = 0; k < inmesh.indices.size(); ++k) {
 				auto indices = inmesh.indices[k];
-				normals[k] = N3f(inattrib.normals[indices.normal_index*3], inattrib.normals[indices.normal_index*3+1], inattrib.normals[indices.normal_index*3+2]);
+				outnormals[k] = N3f(inattrib.normals[indices.normal_index * 3], inattrib.normals[indices.normal_index * 3 + 1], inattrib.normals[indices.normal_index * 3 + 2]);
 			}
 			
-
 			// indexed normals
 			Alembic::AbcGeom::ON3fGeomParam::Sample nsamp(
-				Alembic::Abc::N3fArraySample((const N3f*)normals, inmesh.indices.size()),
+				Alembic::Abc::N3fArraySample((const N3f*)outnormals, inmesh.indices.size()),
 				kFacevaryingScope
 			);
 
-
-			int* mesh_indices = new int[inmesh.indices.size()];
-			for (auto k = 0; k < inmesh.indices.size(); ++k) {
-				mesh_indices[k] = inmesh.indices[k].vertex_index;
-			}
-			int* innumfacevertices = new int[inmesh.num_face_vertices.size()];
+			int* outnumfacevertices = new int[inmesh.num_face_vertices.size()];
 			for (auto k = 0; k < inmesh.num_face_vertices.size(); ++k) {
-				innumfacevertices[k] = inmesh.num_face_vertices[k];
+				outnumfacevertices[k] = inmesh.num_face_vertices[k];
 			}
-
+		
+			V3f* outvertices = new V3f[atlas_mesh.vertexCount];
+			for (auto k = 0; k < atlas_mesh.vertexCount; ++k) {
+				auto vertex_index = atlas_mesh.vertexArray[k].xref;
+				outvertices[k] = V3f(inattrib.vertices[vertex_index * 3], inattrib.vertices[vertex_index * 3 + 1], inattrib.vertices[vertex_index * 3 + 2]);
+			}
+		
 			Alembic::AbcGeom::OPolyMeshSchema::Sample mesh_samp(
-				V3fArraySample((const V3f*)inattrib.vertices.data(), inattrib.vertices.size() / 3),
-				Int32ArraySample((const int*)mesh_indices, inmesh.indices.size()),
-				Int32ArraySample((const int*)innumfacevertices, inmesh.num_face_vertices.size()),
-				uvsamp, 
+				V3fArraySample((const V3f*)outvertices, atlas_mesh.vertexCount),
+				Int32ArraySample((const int*)atlas_mesh.indexArray, atlas_mesh.indexCount),
+				Int32ArraySample((const int*)outnumfacevertices, inmesh.num_face_vertices.size()),
+				uvsamp,
 				nsamp
 			);
 
@@ -210,17 +253,13 @@ int main(int argc, char* argv[])
 			}
 			mesh.set(mesh_samp);
 			mesh.getChildBoundsProperty().set(cbox);
-			delete[] mesh_indices;
-			delete[] innumfacevertices;
-			delete[] normals;
-			delete[] uvs;
-
+	
 			for (auto k = 0; k < frame_materials_json.size();++k) {
 				auto material_name = frame_materials_json[k].asString();
 				auto faceset = facesets[material_name];
 				vector<Abc::int32_t> face_nums;
 				auto material_ids = inmesh.material_ids;
-				for (auto l = 0; l < material_ids.size(); ++l) {
+				for (auto l = 0; l <  material_ids.size(); ++l) {
 					if (material_ids[l] == k) {
 						face_nums.push_back(l);
 					}
@@ -229,7 +268,14 @@ int main(int argc, char* argv[])
 				faceset.getSchema().set(faceset_sample);
 				faceset.getSchema().setTimeSampling(time_sampling_ptr);
 			}
-			
+			delete[] innormals;
+			delete[] inface_indices;
+			delete[] inmaterial_ids;
+			delete[] outnumfacevertices;
+			delete[] outuvs;
+			delete[] outvertices;
+			delete[] outnormals;
+			xatlas::Destroy(atlas);
 		}
 		
 	}

@@ -18,6 +18,8 @@ find_package(jsoncpp CONFIG REQUIRED)
 
 find_path(EARCUT_HPP_INCLUDE_DIRS "mapbox/earcut.hpp")
 
+add_subdirectory("External/xatlas")
+
 # Add source to this project's executable.
 add_executable (StopMotionTool "StopMotionTool.cpp" "StopMotionTool.h")
 
@@ -32,6 +34,7 @@ target_link_libraries(
 		tinyobjloader::tinyobjloader
 		cxxopts::cxxopts
 		JsonCpp::JsonCpp
+		xatlas
 )
 
 target_include_directories(StopMotionTool PRIVATE ${EARCUT_HPP_INCLUDE_DIRS})
