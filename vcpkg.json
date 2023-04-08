@@ -1,0 +1,14 @@
+{
+    "name": "stopmotiontool",
+    "version-string": "0.1.0",
+    "dependencies": [
+        {
+            "name": "alembic",
+            "features": [ "hdf5" ]
+        },
+        "tinyobjloader",
+        "earcut-hpp",
+        "cxxopts",
+        "jsoncpp"
+    ]
+}
