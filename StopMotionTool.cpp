@@ -1,7 +1,7 @@
 ﻿// StopMotionTool.cpp : Defines the entry point for the application.
 //
 #define TINYOBJLOADER_IMPLEMENTATION 
-#define TINYOBJLOADER_USE_MAPBOX_EARCUT
+//#define TINYOBJLOADER_USE_MAPBOX_EARCUT
 
 #include <Alembic/Abc/All.h>
 #include <Alembic/AbcCoreOgawa/All.h>
@@ -157,6 +157,7 @@ int main(int argc, char* argv[])
 			}
 
 			auto atlas = xatlas::Create();
+			
 			auto inmesh = inshapes[0].mesh;
 
 			N3f* innormals = new N3f[inmesh.indices.size()];
@@ -197,7 +198,10 @@ int main(int argc, char* argv[])
 				exit(EXIT_FAILURE);
 			}
 			xatlas::AddMesh(atlas, decl);
-			xatlas::Generate(atlas);
+
+			xatlas::ChartOptions chart_options;
+			chart_options.fixWinding = true;
+			xatlas::Generate(atlas, chart_options);
 
 			auto atlas_mesh = atlas->meshes[0];
 
